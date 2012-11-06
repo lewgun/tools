@@ -9,6 +9,9 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync"
+
+//	"time"
 )
 
 const (
@@ -38,11 +41,14 @@ type file struct {
 	//the global unique name for this logger
 	uname string
 
-	//the output destination, required
+	//the body destination, required
 	path string
 
-	//the output prefix, option
+	//the body prefix, option
 	prefix string
+
+	//the body flag, option
+	flag int
 
 	//rolling or not, option
 	isRolling bool
@@ -50,14 +56,22 @@ type file struct {
 	//the max value in MB, option
 	logSize int64
 
-	f      *os.File
-	index  int64
+	f *os.File
+
 	logger *log.Logger
+	locker sync.Mutex
+
+	index int64
 }
 
 func (f *file) initRolling() error {
-
 	var err error
+	defer func() {
+		if err != nil {
+			f.f.Close()
+		}
+	}()
+
 	//open the logger 
 	f.f, err = os.OpenFile(f.path, os.O_RDWR, os.ModePerm)
 	if err != nil {
@@ -67,6 +81,7 @@ func (f *file) initRolling() error {
 			//skip the index
 			if err == nil {
 				_, err = f.f.Seek(INDEX_IN_BYTE, os.SEEK_SET)
+				f.index = INDEX_IN_BYTE
 			}
 		}
 		return err
@@ -75,7 +90,6 @@ func (f *file) initRolling() error {
 	// seek  to the proper index.
 	_, err = f.f.Seek(0, os.SEEK_SET)
 	if err != nil {
-		f.f.Close()
 		return err
 	}
 
@@ -87,11 +101,11 @@ func (f *file) initRolling() error {
 	if err != nil {
 		return err
 	}
+
 	f.index = n
 
 	stat, err := f.f.Stat()
 	if err != nil {
-		f.f.Close()
 		return err
 	}
 
@@ -103,7 +117,6 @@ func (f *file) initRolling() error {
 	//seek to the end for logging
 	_, err = f.f.Seek(f.index, os.SEEK_SET)
 	if err != nil {
-		f.f.Close()
 		return err
 	}
 	return nil
@@ -134,8 +147,11 @@ func (f *file) init(arg *Arg) error {
 		case IS_ROLLING:
 			f.isRolling = v.(bool)
 
+		case FLAG:
+			f.flag = v.(int)
+
 		case LOG_SIZE:
-			f.logSize = v.(int64) << 20 // MB ->byte
+			f.logSize = int64(v.(int) << 20) // MB ->byte
 
 		default:
 			//placeholder
@@ -158,28 +174,31 @@ func (f *file) init(arg *Arg) error {
 
 	}
 
-	f.logger = log.New(f.f, f.prefix, DEFAULT_FLAG)
-	if f.logger == nil {
-		return fmt.Errorf("New logger is failed")
-	}
+	f.logger = log.New(f.f, "", 0)
 
 	return nil
 }
 
 func (f *file) logRollingHelper(format string, params ...interface{}) error {
 
-	var output string
+	var (
+		body string
+		all  []byte
+	)
 	if format != "" {
-		if format[len(format)-1:] != "\n" {
-			format += "\n"
-		}
-		output = fmt.Sprintf(format, params...)
+		body = fmt.Sprintf(format, params[2:]...)
 
 	} else {
-		output = fmt.Sprintln(params...)
+		body = fmt.Sprint(params[2:]...)
 	}
 
-	size := int64(len(output))
+	all = formatHelper(params[0].(string), params[1].(int), f.flag, f.prefix, body)
+
+	if all[len(all)-1] != '\n' {
+		all = append(all, '\n')
+	}
+
+	size := int64(len(all))
 
 	var (
 		err       error
@@ -195,9 +214,8 @@ func (f *file) logRollingHelper(format string, params ...interface{}) error {
 		if err != nil {
 			return err
 		}
-
-		f.logger.Print(output[:rhSize])
-
+		//f.f.Write(all[:rhSize])
+		f.logger.Print(string(all[:rhSize]))
 		f.index = f.logSize
 
 		//left hand 
@@ -205,19 +223,18 @@ func (f *file) logRollingHelper(format string, params ...interface{}) error {
 		if err != nil {
 			return err
 		}
-
-		f.logger.Print(output[rhSize:])
-
+		//f.f.Write(all[rhSize:])
+		f.logger.Print(string(all[rhSize:]))
 		index = totalSize - f.logSize + INDEX_IN_BYTE
-	} else {
 
+	} else {
 		//right hand
 		_, err = f.f.Seek(f.index, os.SEEK_SET)
 		if err != nil {
 			return err
 		}
-
-		f.logger.Print(output)
+		//	f.f.Write(all)
+		f.logger.Print(string(all))
 		index = totalSize
 
 	}
@@ -242,15 +259,26 @@ func (f *file) logHelper(format string, params ...interface{}) {
 		}
 
 	} else {
+
+		var (
+			body string
+			all  []byte
+		)
+
 		if format != "" {
-			if format[len(format)-1:] != "\n" {
-				format += "\n"
-			}
-			f.logger.Printf(format, params...)
+			body = fmt.Sprintf(format, params[2:]...)
 
 		} else {
-			f.logger.Println(params...)
+			body = fmt.Sprint(params[2:]...)
 		}
+
+		if all[len(all)-1] != '\n' {
+			all = append(all, '\n')
+		}
+
+		all = formatHelper(params[0].(string), params[1].(int), f.flag, f.prefix, body)
+		//f.f.Write(all)
+		f.logger.Print(string(all))
 
 	}
 
@@ -281,4 +309,60 @@ func (f *file) Release() {
 		f.f.Close()
 		f.f = nil
 	}
+}
+
+func (f *file) Fatal(v ...interface{}) {
+	f.logger.Fatal(v...)
+
+}
+func (f *file) Fatalf(format string, v ...interface{}) {
+	f.logger.Fatalf(format, v...)
+}
+func (f *file) Fatalln(v ...interface{}) {
+	f.logger.Fatalln(v...)
+}
+func (f *file) Flags() int {
+	f.locker.Lock()
+	defer f.locker.Unlock()
+	return f.flag
+
+}
+func (f *file) Output(calldepth int, s string) error {
+	return f.logger.Output(calldepth+1, s)
+
+}
+func (f *file) Panic(v ...interface{}) {
+	f.logger.Panic(v...)
+
+}
+func (f *file) Panicf(format string, v ...interface{}) {
+	f.logger.Panicf(format, v...)
+}
+func (f *file) Panicln(v ...interface{}) {
+	f.logger.Panicln(v...)
+}
+func (f *file) Prefix() string {
+	f.locker.Lock()
+	defer f.locker.Unlock()
+	return f.prefix
+}
+func (f *file) Print(v ...interface{}) {
+	f.logger.Print(v...)
+}
+func (f *file) Printf(format string, v ...interface{}) {
+	f.logger.Printf(format, v...)
+}
+func (f *file) Println(v ...interface{}) {
+	f.logger.Println(v...)
+}
+func (f *file) SetFlags(flag int) {
+	f.locker.Lock()
+	defer f.locker.Unlock()
+	f.flag = flag
+}
+func (f *file) SetPrefix(prefix string) {
+	f.locker.Lock()
+	defer f.locker.Unlock()
+	f.prefix = prefix
+
 }

@@ -3,9 +3,10 @@ package manager
 import (
 	"fmt"
 	"log/provider"
-	"path/filepath"
+	//	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -13,11 +14,26 @@ var (
 
 	//日志记录器容器
 	drivers = map[string]Logger{
-		provider.DEFAULT: provider.Default,
+	//	provider.DEFAULT: provider.Default,
+	}
+	globalMgr *manager
+)
+
+func init() {
+
+	arg := provider.Arg{
+		Driver: provider.CONSOLE,
+		Extras: map[string]interface{}{
+			provider.FLAG: provider.Lshortfile | provider.LstdFlags,
+		},
 	}
 
+	drv := provider.New(provider.CONSOLE, &arg).(Logger)
+
+	register(provider.CONSOLE, drv)
+
 	//默认管理器
-	defMgr = manager{
+	defMgr := manager{
 		defLogger:   drivers[provider.DEFAULT],
 		curLogger:   drivers[provider.DEFAULT],
 		level:       LEVEL_DEFAULT,                          //默认为>=warn 的消息才输出
@@ -26,7 +42,7 @@ var (
 	}
 
 	globalMgr = &defMgr
-)
+}
 
 //日志管理器
 type manager struct {
@@ -42,11 +58,10 @@ type manager struct {
 	//日志级别
 	level int
 
-	//输出标志
-	flag int
-
 	//关闭记录器标志
 	stopFlag chan struct{}
+
+	locker sync.Mutex
 }
 
 func (m *manager) logProcHelper(arg *LogArgs) error {
@@ -61,10 +76,14 @@ func (m *manager) logProcHelper(arg *LogArgs) error {
 	var format string
 
 	if arg.Format != "" {
-		format = arg.FileLine + " " + logPrefixs[level] + " " + arg.Format
+		format = logPrefixs[level] + " " + arg.Format
+
+		arg.Params = append([]interface{}{arg.File, arg.Line}, arg.Params...)
 	} else {
-		arg.Params = append([]interface{}{arg.FileLine, logPrefixs[level]}, arg.Params...)
+
+		arg.Params = append([]interface{}{arg.File, arg.Line, logPrefixs[level]}, arg.Params...)
 	}
+
 	switch level {
 	case LEVEL_TRACE:
 		m.curLogger.Tracef(format, arg.Params)
@@ -127,8 +146,15 @@ func (m *manager) stop() {
 	<-m.stopFlag
 }
 
+func (m *manager) current() Logger {
+	m.locker.Lock()
+	defer m.locker.Unlock()
+	return m.curLogger
+}
 func (m *manager) change(driver string, level, flag int) error {
 
+	m.locker.Lock()
+	defer m.locker.Unlock()
 	// get the driver which named 'driver' from the driver db.
 	logger := get(driver)
 	if logger == nil {
@@ -141,7 +167,6 @@ func (m *manager) change(driver string, level, flag int) error {
 	// change to the new one 
 	m.curLogger = logger
 	m.level = level
-	m.flag = flag
 	m.chanLogArgs = make(chan *LogArgs, DEFAULT_CHAN_SIZE)
 
 	// boot the new one 
@@ -193,7 +218,6 @@ func Open(typ string, level int, flag int, arg *provider.Arg) error {
 
 	// set the new driver as the current driver
 	globalMgr.curLogger = drv
-	globalMgr.flag = flag
 	globalMgr.level = level
 
 	register(arg.Driver, drv)
@@ -216,6 +240,9 @@ func Change(driver string, level, flag int) error {
 
 }
 
+func Current() Logger {
+	return globalMgr.current()
+}
 func logHelper(level int, format string, params ...interface{}) {
 
 	if level < globalMgr.level {
@@ -224,26 +251,17 @@ func logHelper(level int, format string, params ...interface{}) {
 
 	var (
 		file string
-		line int
-
-		fileLine string
+		line int = -1
 	)
 
-	// need file name & line no
-	if globalMgr.flag&Lwithfile != 0 {
-
-		_, file, line, _ = runtime.Caller(2)
-		if globalMgr.flag&Lshortfile != 0 {
-			file = filepath.Base(file)
-		}
-		fileLine = fmt.Sprintf("%s:%d", file, line)
-	}
+	_, file, line, _ = runtime.Caller(2)
 
 	globalMgr.chanLogArgs <- &LogArgs{
-		Level:    level,
-		FileLine: fileLine,
-		Format:   format,
-		Params:   params,
+		Level:  level,
+		File:   file,
+		Line:   line,
+		Format: format,
+		Params: params,
 	}
 }
 

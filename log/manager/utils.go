@@ -18,14 +18,6 @@ const (
 	DEFAULT_CHAN_SIZE = 10
 )
 
-const (
-	_ = 1 << iota
-	Lnofile
-	Llongfile  // full file name and line number: /a/b/c/d.go:23
-	Lshortfile // final file name element and line number: d.go:23. overrides Llongfile
-	Lwithfile  = Lshortfile | Llongfile
-)
-
 var (
 	logPrefixs = []string{
 		"[TRACE]",
@@ -39,8 +31,9 @@ var (
 
 //输出参数
 type LogArgs struct {
-	Level    int
-	FileLine string
-	Format   string
-	Params   []interface{}
+	Level  int
+	File   string
+	Line   int
+	Format string
+	Params []interface{}
 }

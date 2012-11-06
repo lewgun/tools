@@ -9,7 +9,6 @@ import (
 
 var (
 	drivers = map[string]interface{}{}
-	Default = &Console{}
 )
 
 func register(driver string, constructor interface{}) error {
