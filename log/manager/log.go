@@ -69,7 +69,7 @@ func (m *manager) logProcHelper(arg *LogArgs) error {
 	level := arg.Level
 
 	//当日志级别异常时，默认为default
-	if level < LEVEL_TRACE || level > LEVEL_CRITICAL {
+	if level < LEVEL_TRACE || level > LEVEL_ALL {
 		level = LEVEL_DEFAULT
 	}
 
@@ -82,11 +82,12 @@ func (m *manager) logProcHelper(arg *LogArgs) error {
 	} else {
 
 		arg.Params = append([]interface{}{arg.File, arg.Line, logPrefixs[level]}, arg.Params...)
+
 	}
 
 	switch level {
 	case LEVEL_TRACE:
-		m.curLogger.Tracef(format, arg.Params)
+		m.curLogger.Tracef(format, arg.Params...)
 
 	case LEVEL_DEBUG:
 		m.curLogger.Debugf(format, arg.Params...)
@@ -113,7 +114,6 @@ FOOR_FLAG:
 	for {
 		select {
 		case arg, ok := <-m.chanLogArgs:
-
 			//已经清空所有消息,可以退出
 			if !ok {
 				m.curLogger.Release()
@@ -151,7 +151,7 @@ func (m *manager) current() Logger {
 	defer m.locker.Unlock()
 	return m.curLogger
 }
-func (m *manager) change(driver string, level, flag int) error {
+func (m *manager) change(driver string, level int) error {
 
 	m.locker.Lock()
 	defer m.locker.Unlock()
@@ -198,10 +198,10 @@ func get(driver string) Logger {
 }
 
 //打开一个合适的日志记录器
-func Open(typ string, level int, flag int, arg *provider.Arg) error {
+func Open(typ string, level int, arg *provider.Arg) error {
 
 	//设置默认日志级别
-	if level < LEVEL_TRACE || level > LEVEL_CRITICAL {
+	if level < LEVEL_TRACE || level > LEVEL_ALL {
 		level = LEVEL_DEFAULT
 	}
 
@@ -216,11 +216,8 @@ func Open(typ string, level int, flag int, arg *provider.Arg) error {
 		return fmt.Errorf("create the new driver with name: %s is failed\n", arg.Driver)
 	}
 
-	// set the new driver as the current driver
-	globalMgr.curLogger = drv
-	globalMgr.level = level
-
 	register(arg.Driver, drv)
+	Change(arg.Driver, level)
 	return nil
 }
 
@@ -235,8 +232,8 @@ func Stop() {
 }
 
 //change the current logger to the one which named 'driver'
-func Change(driver string, level, flag int) error {
-	return globalMgr.change(driver, level, flag)
+func Change(driver string, level int) error {
+	return globalMgr.change(driver, level)
 
 }
 
@@ -245,7 +242,7 @@ func Current() Logger {
 }
 func logHelper(level int, format string, params ...interface{}) {
 
-	if level < globalMgr.level {
+	if level&globalMgr.level == 0 {
 		return // need not ouput 
 	}
 

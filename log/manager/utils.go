@@ -2,12 +2,13 @@ package manager
 
 //日志级别
 const (
-	LEVEL_TRACE = iota
+	LEVEL_TRACE = 1 << iota
 	LEVEL_DEBUG
 	LEVEL_INFO
 	LEVEL_WARN
 	LEVEL_ERROR
 	LEVEL_CRITICAL
+	LEVEL_ALL = LEVEL_TRACE | LEVEL_DEBUG | LEVEL_INFO | LEVEL_WARN | LEVEL_ERROR | LEVEL_CRITICAL
 
 	//默认日志级别为
 	LEVEL_DEFAULT = LEVEL_WARN
@@ -19,13 +20,13 @@ const (
 )
 
 var (
-	logPrefixs = []string{
-		"[TRACE]",
-		"[DEBUG]",
-		"[INFO]",
-		"[WARN]",
-		"[ERROR]",
-		"[CRITICAL]",
+	logPrefixs = map[int]string{
+		LEVEL_TRACE:    "[TRACE]",
+		LEVEL_DEBUG:    "[DEBUG]",
+		LEVEL_INFO:     "[INFO]",
+		LEVEL_WARN:     "[WARN]",
+		LEVEL_ERROR:    "[ERROR]",
+		LEVEL_CRITICAL: "[CRITICAL]",
 	}
 )
 

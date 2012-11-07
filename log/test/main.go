@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	//	"fmt"
 	"log/manager"
 	"log/provider"
 	"time"
@@ -14,9 +14,30 @@ const (
 	LOG_SIZE   = "log_size"
 )
 
+func output() {
+	//with out format 
+	manager.Trace("hello Trace")
+	manager.Debug("hello Debug")
+	manager.Info("hello Info")
+	manager.Warn("hello Warn")
+	manager.Error("hello Error")
+	manager.Critical("hello Critical")
+
+	manager.Tracef("%s", "hello Trace")
+	manager.Debugf("%s", "hello Debug")
+	manager.Infof("%s", "hello Info")
+	manager.Warnf("%s", "hello Warn")
+	manager.Errorf("%s", "hello Error")
+	manager.Criticalf("%s", "hello Critical")
+}
 func main() {
 
-	arg := provider.Arg{
+	manager.Run()
+	defer manager.Stop()
+
+	output()
+
+	fileArgs := provider.Arg{
 		Driver: "hello test",
 		Extras: map[string]interface{}{
 			provider.PATH:       "./testlog.log",
@@ -27,24 +48,12 @@ func main() {
 		},
 	}
 
-	manager.Open(provider.CONSOLE, manager.LEVEL_DEBUG, provider.Lshortfile|provider.LstdFlags, &arg)
-	manager.Run()
-	defer manager.Stop()
-
-	for i := 0; i < 10000; i++ {
-
-		manager.Error("hello world")
-		//manager.Errorf("With format%s", "hello world")
-		//	println(i)
-	}
+	manager.Open(provider.FILE, manager.LEVEL_ALL, &fileArgs)
+	output()
 
 	logger := manager.Current()
-	logger.(manager.StdLogger).Panic("need crash")
-	fmt.Println("\n\n\n")
-	//	manager.Change(provider.CONSOLE, manager.LEVEL_INFO, provider.Lshortfile|provider.LstdFlags)
-	manager.Error("console hello world")
-	manager.Debugf("console With format %s can't be output ", "hello world")
-	//
+	logger.(manager.StdLogger).Panic("with std log, crashed")
+
 	for {
 
 		time.Sleep(time.Second * 3)
