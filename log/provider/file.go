@@ -98,7 +98,7 @@ func (f *file) init(arg *Arg) error {
 
 		case WRITE_TYPE:
 			f.typ = v.(int)
-			if f.typ != SINGLE_APPEND && f.typ != MULTI_APPEND && f.typ != ROLLING {
+			if f.typ != SINGLE_APPEND && f.typ != MULTI_APPEND /*&& f.typ != ROLLING*/ {
 				f.typ = SINGLE_APPEND
 			}
 
@@ -247,8 +247,8 @@ func (f *file) logHelper(format string, params ...interface{}) {
 	case MULTI_APPEND:
 		f.logMultiAppend(string(all))
 
-	case ROLLING:
-		f.logAppend(string(all))
+	//case ROLLING:
+	//	f.logAppend(string(all))
 	default:
 		f.logAppend(string(all))
 	}
