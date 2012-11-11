@@ -1,17 +1,16 @@
 package main
 
 import (
-	//	"fmt"
+	//"fmt"
 	"log/manager"
 	"log/provider"
 	"time"
 )
 
 const (
-	PATH       = "path"
-	PREFIX     = "prefix"
-	IS_ROLLING = "is_rolling"
-	LOG_SIZE   = "log_size"
+	PATH     = "path"
+	PREFIX   = "prefix"
+	LOG_SIZE = "log_size"
 )
 
 func output() {
@@ -40,16 +39,24 @@ func main() {
 	fileArgs := provider.Arg{
 		Driver: "hello test",
 		Extras: map[string]interface{}{
-			provider.PATH:       "./testlog.log",
-			provider.PREFIX:     "[lewgun]",
-			provider.IS_ROLLING: true,
+			provider.PATH:   "./testlog.log",
+			provider.PREFIX: "[lewgun]",
+			//provider.WRITE_TYPE: provider.SINGLE_APPEND,
+			provider.WRITE_TYPE: provider.MULTI_APPEND,
 			provider.LOG_SIZE:   1,
 			provider.FLAG:       provider.Lshortfile | provider.LstdFlags,
+			provider.LOG_COUNT:  3,
 		},
 	}
 
-	manager.Open(provider.FILE, manager.LEVEL_ALL, &fileArgs)
-	output()
+	err := manager.Open(provider.FILE, manager.LEVEL_ALL, &fileArgs)
+	if err != nil {
+		panic(err)
+	}
+	for i := 0; i < 100000; i++ {
+
+		output()
+	}
 
 	logger := manager.Current()
 	logger.(manager.StdLogger).Panic("with std log, crashed")

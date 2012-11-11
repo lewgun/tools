@@ -211,11 +211,12 @@ func Open(typ string, level int, arg *provider.Arg) error {
 	}
 
 	var drv Logger
-	drv = provider.New(typ, arg).(Logger)
-	if drv == nil {
+	logger := provider.New(typ, arg)
+	if logger == nil {
 		return fmt.Errorf("create the new driver with name: %s is failed\n", arg.Driver)
 	}
 
+	drv = logger.(Logger)
 	register(arg.Driver, drv)
 	Change(arg.Driver, level)
 	return nil

@@ -15,9 +15,17 @@ const (
 const (
 	PATH       = "path"
 	PREFIX     = "prefix"
-	IS_ROLLING = "is_rolling"
+	TYPE       = "type"
 	LOG_SIZE   = "log_size"
 	FLAG       = "flag"
+	LOG_COUNT  = "log_count"
+	WRITE_TYPE = "write_type"
+)
+
+//写入方式
+const (
+	SINGLE_APPEND = iota //常规单文件追加
+	MULTI_APPEND         //多文件追加
 )
 
 // copy from std log library

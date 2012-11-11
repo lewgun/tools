@@ -5,17 +5,22 @@ This driver is about use plain text to save log.
 package provider
 
 import (
-	"encoding/binary"
+	//"encoding/binary"
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 
 //	"time"
 )
 
 const (
-	FILE = "file"
+	FILE     = "file"
+	SPLITTER = "."
 )
 
 func init() {
@@ -42,7 +47,7 @@ type file struct {
 	uname string
 
 	//the body destination, required
-	path string
+	originPath string
 
 	//the body prefix, option
 	prefix string
@@ -50,76 +55,18 @@ type file struct {
 	//the body flag, option
 	flag int
 
-	//rolling or not, option
-	isRolling bool
+	//write type, ption
+	typ int
 
 	//the max value in MB, option
 	logSize int64
+
+	logCount int
 
 	f *os.File
 
 	logger *log.Logger
 	locker sync.Mutex
-
-	index int64
-}
-
-func (f *file) initRolling() error {
-	var err error
-	defer func() {
-		if err != nil {
-			f.f.Close()
-		}
-	}()
-
-	//open the logger 
-	f.f, err = os.OpenFile(f.path, os.O_RDWR, os.ModePerm)
-	if err != nil {
-		if os.IsNotExist(err) {
-			f.f, err = os.Create(f.path)
-
-			//skip the index
-			if err == nil {
-				_, err = f.f.Seek(INDEX_IN_BYTE, os.SEEK_SET)
-				f.index = INDEX_IN_BYTE
-			}
-		}
-		return err
-	}
-
-	// seek  to the proper index.
-	_, err = f.f.Seek(0, os.SEEK_SET)
-	if err != nil {
-		return err
-	}
-
-	var (
-		n int64
-	)
-
-	err = binary.Read(f.f, binary.LittleEndian, &n)
-	if err != nil {
-		return err
-	}
-
-	f.index = n
-
-	stat, err := f.f.Stat()
-	if err != nil {
-		return err
-	}
-
-	// if the index is beyond the end. seek to 0
-	if f.index >= stat.Size() {
-		f.index = 0
-	}
-
-	//seek to the end for logging
-	_, err = f.f.Seek(f.index, os.SEEK_SET)
-	if err != nil {
-		return err
-	}
-	return nil
 }
 
 func (f *file) init(arg *Arg) error {
@@ -132,20 +79,13 @@ func (f *file) init(arg *Arg) error {
 
 	f.uname = arg.Driver
 
-	var (
-		err error
-	)
-
 	for k, v := range extras {
 		switch k {
 		case PATH:
-			f.path = v.(string)
+			f.originPath = v.(string)
 
 		case PREFIX:
 			f.prefix = v.(string)
-
-		case IS_ROLLING:
-			f.isRolling = v.(bool)
 
 		case FLAG:
 			f.flag = v.(int)
@@ -153,38 +93,140 @@ func (f *file) init(arg *Arg) error {
 		case LOG_SIZE:
 			f.logSize = int64(v.(int) << 20) // MB ->byte
 
+		case LOG_COUNT:
+			f.logCount = v.(int)
+
+		case WRITE_TYPE:
+			f.typ = v.(int)
+			if f.typ != SINGLE_APPEND && f.typ != MULTI_APPEND && f.typ != ROLLING {
+				f.typ = SINGLE_APPEND
+			}
+
 		default:
 			//placeholder
 		}
 	}
 
-	//need rolling
-	if f.isRolling {
-		err = f.initRolling()
-		if err != nil {
-			return err
+	return f.openLogger(true)
+
+}
+
+func (f *file) openLogger(isInit bool) error {
+
+	var (
+		err   error
+		name2 string
+
+		baseOrigPath = filepath.Base(f.originPath)
+	)
+
+	dir, err := os.Open(filepath.Dir(f.originPath))
+	if err != nil {
+		return err
+	}
+
+	defer dir.Close()
+
+	fileInfos, err := dir.Readdir(-1)
+	if err != nil {
+		return err
+	}
+	//找取文件中最近被更新的日志文件
+	var logFiles []string
+	for _, fi := range fileInfos {
+		name2 = fi.Name()
+
+		//均为日志文件
+		if strings.Contains(strings.ToLower(name2), baseOrigPath) {
+			logFiles = append(logFiles, name2)
+		}
+	}
+
+	sort.Sort(sort.StringSlice(logFiles))
+	if !isInit {
+		//取得最老一个日志文件的后缀
+		oldestLogFile := logFiles[len(logFiles)-1]
+
+		var postfix int
+		if oldestLogFile != baseOrigPath {
+			postfix, err = strconv.Atoi(oldestLogFile[len(baseOrigPath)+1:])
+			if err != nil {
+				return err
+			}
 		}
 
-	} else {
-		//open the logger 
-		f.f, err = os.OpenFile(f.path, os.O_CREATE|os.O_APPEND, os.ModePerm)
-		if err != nil {
-			return err
+		//删除最后一个文件
+		if postfix >= f.logCount {
+			os.Remove(oldestLogFile)
+			logFiles = logFiles[:len(logFiles)-1]
 		}
 
+		//文件重命名
+		for i := postfix + 1; i >= 1; i-- {
+			//for i := postfix; i >= 1; i-- {
+
+			var oldName string
+			if i-1 == 0 {
+				oldName = f.originPath
+			} else {
+				oldName = fmt.Sprintf("%s.%d", f.originPath, i-1)
+			}
+
+			newName := fmt.Sprintf("%s.%d", f.originPath, i)
+			os.Rename(oldName, newName)
+		}
+
+	}
+
+	f.f, err = os.OpenFile(f.originPath, os.O_CREATE|os.O_APPEND, os.ModePerm)
+
+	if err != nil {
+		//panic(err)
+		return err
 	}
 
 	f.logger = log.New(f.f, "", 0)
 
 	return nil
+
 }
 
-func (f *file) logRollingHelper(format string, params ...interface{}) error {
+func (f *file) logMultiAppend(data string) {
+	stats, err := f.f.Stat()
+	if err != nil {
+		return
+	}
+	size := stats.Size()
+
+	if size+int64(len(data)) >= f.logSize {
+
+		//关闭旧文件
+		f.f.Close()
+		f.openLogger(false)
+	}
+
+	//常规操作
+	f.logAppend(data)
+
+}
+
+func (f *file) logAppend(data string) {
+
+	//f.f.Write(all)
+	f.logger.Print(data)
+}
+
+func (f *file) logRolling(data string) {
+	//placeholder
+}
+
+func (f *file) logHelper(format string, params ...interface{}) {
 
 	var (
 		body string
 		all  []byte
 	)
+
 	if format != "" {
 		body = fmt.Sprintf(format, params[2:]...)
 
@@ -198,88 +240,17 @@ func (f *file) logRollingHelper(format string, params ...interface{}) error {
 		all = append(all, '\n')
 	}
 
-	size := int64(len(all))
+	switch f.typ {
+	case SINGLE_APPEND:
+		f.logAppend(string(all))
 
-	var (
-		err       error
-		index     int64
-		totalSize int64
-	)
-	totalSize = f.index + size
-	if totalSize > f.logSize {
-		rhSize := f.logSize - f.index
+	case MULTI_APPEND:
+		f.logMultiAppend(string(all))
 
-		//right hand
-		_, err = f.f.Seek(f.index, os.SEEK_SET)
-		if err != nil {
-			return err
-		}
-		//f.f.Write(all[:rhSize])
-		f.logger.Print(string(all[:rhSize]))
-		f.index = f.logSize
-
-		//left hand 
-		_, err = f.f.Seek(INDEX_IN_BYTE, os.SEEK_SET)
-		if err != nil {
-			return err
-		}
-		//f.f.Write(all[rhSize:])
-		f.logger.Print(string(all[rhSize:]))
-		index = totalSize - f.logSize + INDEX_IN_BYTE
-
-	} else {
-		//right hand
-		_, err = f.f.Seek(f.index, os.SEEK_SET)
-		if err != nil {
-			return err
-		}
-		//	f.f.Write(all)
-		f.logger.Print(string(all))
-		index = totalSize
-
-	}
-
-	_, err = f.f.Seek(0, os.SEEK_SET)
-	if err != nil {
-		return err
-	}
-
-	err = binary.Write(f.f, binary.LittleEndian, index)
-	if err == nil {
-		f.index = index
-	}
-	return err
-
-}
-func (f *file) logHelper(format string, params ...interface{}) {
-
-	if f.isRolling {
-		if err := f.logRollingHelper(format, params...); err != nil {
-			fmt.Println(err)
-		}
-
-	} else {
-
-		var (
-			body string
-			all  []byte
-		)
-
-		if format != "" {
-			body = fmt.Sprintf(format, params[2:]...)
-
-		} else {
-			body = fmt.Sprint(params[2:]...)
-		}
-
-		if all[len(all)-1] != '\n' {
-			all = append(all, '\n')
-		}
-
-		all = formatHelper(params[0].(string), params[1].(int), f.flag, f.prefix, body)
-		//f.f.Write(all)
-		f.logger.Print(string(all))
-
+	case ROLLING:
+		f.logAppend(string(all))
+	default:
+		f.logAppend(string(all))
 	}
 
 }
