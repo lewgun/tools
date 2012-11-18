@@ -2,14 +2,14 @@ package provider
 
 import (
 	//	"log"
+	"fmt"
 	"time"
 )
 
 //默认配置项
 const (
-	DEFAULT       = CONSOLE
-	DEFAULT_FLAG  = 0 //log.LstdFlags
-	INDEX_IN_BYTE = 8
+	DEFAULT      = CONSOLE
+	DEFAULT_FLAG = 0 //log.LstdFlags
 )
 
 const (
@@ -26,6 +26,13 @@ const (
 const (
 	SINGLE_APPEND = iota //常规单文件追加
 	MULTI_APPEND         //多文件追加
+)
+
+//标准日志prefix
+const (
+	PREFIX_STD_PRINT = "[PRINT]"
+	PREFIX_STD_FATAL = "[FATAL]"
+	PREFIX_STD_PANIC = "[PANIC]"
 )
 
 // copy from std log library
@@ -120,6 +127,37 @@ func formatHelper(file string, line int, flag int, prefix string, s string) []by
 	formatHeader(&buf, now, file, line, flag, prefix)
 	buf = append(buf, s...)
 	return buf
+}
+
+func outputHelper(format string, needCLRF bool, flag int, prefix string, params ...interface{}) []byte {
+	var (
+		body string
+		all  []byte
+	)
+
+	//有格式
+	if format != "" {
+		body = fmt.Sprintf(format, params[2:]...)
+
+	} else {
+		//无格式但是采取换行输出
+		if needCLRF {
+			body = fmt.Sprintln(params[2:]...)
+
+			//无格式普通输出
+		} else {
+			body = fmt.Sprint(params[2:]...)
+		}
+
+	}
+
+	all = formatHelper(params[0].(string), params[1].(int), flag, prefix, body)
+
+	if all[len(all)-1] != '\n' {
+		all = append(all, '\n')
+	}
+	return all
+
 }
 
 //记录器配置参数

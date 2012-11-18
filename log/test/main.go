@@ -59,7 +59,8 @@ func main() {
 	}
 
 	logger := manager.Current()
-	logger.(manager.StdLogger).Panic("with std log, crashed")
+	logger.Println("hello", 1, 2.3)
+	logger.Panic("with std log, crashed")
 
 	for {
 

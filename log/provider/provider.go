@@ -21,9 +21,9 @@ func register(driver string, constructor interface{}) error {
 	drivers[lower] = constructor
 	return nil
 }
-func New(typ string, arg *Arg) interface{} {
+func New(typ string, prefix string, arg *Arg) interface{} {
 
-	i, _ := call(drivers, typ, arg)
+	i, _ := call(drivers, typ, arg, prefix)
 	return i
 }
 

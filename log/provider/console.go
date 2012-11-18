@@ -1,8 +1,9 @@
 package provider
 
 import (
-	"fmt"
+	//	"fmt"
 	"log"
+	"runtime"
 	//	"io"
 	"os"
 	"sync"
@@ -16,14 +17,14 @@ func init() {
 	register(CONSOLE, newConsole)
 }
 
-func newConsole(arg *Arg) interface{} {
+func newConsole(arg *Arg, prefix string) interface{} {
 	if arg == nil {
 		return nil
 	}
 
 	c := &console{}
 
-	if err := c.init(arg); err != nil {
+	if err := c.init(arg, prefix); err != nil {
 		return nil
 	}
 	return c
@@ -44,11 +45,12 @@ type console struct {
 	//	writer io.Writer
 }
 
-func (c *console) init(arg *Arg) error {
+func (c *console) init(arg *Arg, prefix string) error {
 
 	extras := arg.Extras
 
 	c.uname = arg.Driver
+	c.prefix = prefix
 
 	for k, v := range extras {
 		switch k {
@@ -70,46 +72,48 @@ func (c *console) init(arg *Arg) error {
 	return nil
 }
 
+func (c *console) genStdLogHelper(format string, params ...interface{}) []interface{} {
+
+	_, file, line, _ := runtime.Caller(2)
+	if format != "" {
+		format = c.prefix + " " + format
+
+		params = append([]interface{}{file, line}, params...)
+	} else {
+		params = append([]interface{}{file, line, c.prefix}, params...)
+	}
+	return params
+
+}
 func (c *console) Tracef(format string, params ...interface{}) {
-	c.logHelper(format, params...)
+
+	all := outputHelper(format, false, c.flag, c.prefix, params...)
+	c.logHelper(all)
 }
 
 func (c *console) Debugf(format string, params ...interface{}) {
-	c.logHelper(format, params...)
+	all := outputHelper(format, false, c.flag, c.prefix, params...)
+	c.logHelper(all)
 }
 func (c *console) Infof(format string, params ...interface{}) {
-	c.logHelper(format, params...)
+	all := outputHelper(format, false, c.flag, c.prefix, params...)
+	c.logHelper(all)
 }
 func (c *console) Warnf(format string, params ...interface{}) {
-	c.logHelper(format, params...)
+	all := outputHelper(format, false, c.flag, c.prefix, params...)
+	c.logHelper(all)
 }
 func (c *console) Errorf(format string, params ...interface{}) {
-	c.logHelper(format, params...)
+	all := outputHelper(format, false, c.flag, c.prefix, params...)
+	c.logHelper(all)
 }
-
 func (c *console) Criticalf(format string, params ...interface{}) {
-	c.logHelper(format, params...)
+	all := outputHelper(format, false, c.flag, c.prefix, params...)
+	c.logHelper(all)
 }
 
-func (c *console) logHelper(format string, params ...interface{}) {
+func (c *console) logHelper(all []byte) {
 
-	var (
-		body string
-		all  []byte
-	)
-
-	if format != "" {
-		body = fmt.Sprintf(format, params[2:]...)
-
-	} else {
-		body = fmt.Sprint(params[2:]...)
-	}
-	c.locker.Lock()
-	defer c.locker.Unlock()
-	all = formatHelper(params[0].(string), params[1].(int), c.flag, c.prefix, body)
-	if all[len(all)-1] != '\n' {
-		all = append(all, '\n')
-	}
 	c.logger.Print(string(all))
 	//c.writer.Write(all)
 
@@ -119,50 +123,79 @@ func (c *console) Release() {
 
 }
 
+//standard log methods
 func (c *console) Fatal(v ...interface{}) {
-	c.logger.Fatal(v...)
+	params := c.genStdLogHelper("", v...)
+
+	all := outputHelper("", false, c.flag, PREFIX_STD_FATAL, params...)
+	c.logHelper(all)
+	os.Exit(1)
 
 }
 func (c *console) Fatalf(format string, v ...interface{}) {
-	c.logger.Fatalf(format, v...)
+	params := c.genStdLogHelper(format, v...)
+	all := outputHelper(format, false, c.flag, PREFIX_STD_FATAL, params...)
+	c.logHelper(all)
+	os.Exit(1)
 }
 func (c *console) Fatalln(v ...interface{}) {
-	c.logger.Fatalln(v...)
+	params := c.genStdLogHelper("", v...)
+	all := outputHelper("", true, c.flag, PREFIX_STD_FATAL, params...)
+	c.logHelper(all)
+	os.Exit(1)
 }
+
+func (c *console) Output(calldepth int, s string) error {
+	return c.logger.Output(calldepth+1, s)
+
+}
+func (c *console) Panic(v ...interface{}) {
+	params := c.genStdLogHelper("", v...)
+	all := outputHelper("", false, c.flag, PREFIX_STD_PANIC, params...)
+	panic(string(all))
+
+}
+func (c *console) Panicf(format string, v ...interface{}) {
+	params := c.genStdLogHelper(format, v...)
+	all := outputHelper(format, true, c.flag, PREFIX_STD_PANIC, params...)
+	panic(string(all))
+}
+func (c *console) Panicln(v ...interface{}) {
+	params := c.genStdLogHelper("", v...)
+	all := outputHelper("", true, c.flag, PREFIX_STD_PANIC, params...)
+	panic(string(all))
+}
+
+func (c *console) Print(v ...interface{}) {
+	params := c.genStdLogHelper("", v...)
+	all := outputHelper("", false, c.flag, PREFIX_STD_PRINT, params...)
+	c.logHelper(all)
+
+}
+func (c *console) Printf(format string, v ...interface{}) {
+	params := c.genStdLogHelper(format, v...)
+	all := outputHelper(format, false, c.flag, PREFIX_STD_PRINT, params...)
+	c.logHelper(all)
+}
+func (c *console) Println(v ...interface{}) {
+	params := c.genStdLogHelper("", v...)
+	all := outputHelper("", true, c.flag, PREFIX_STD_PRINT, params...)
+	c.logHelper(all)
+}
+
+func (c *console) Prefix() string {
+	c.locker.Lock()
+	defer c.locker.Unlock()
+	return c.prefix
+}
+
 func (c *console) Flags() int {
 	c.locker.Lock()
 	defer c.locker.Unlock()
 	return c.flag
 
 }
-func (c *console) Output(calldepth int, s string) error {
-	return c.logger.Output(calldepth+1, s)
 
-}
-func (c *console) Panic(v ...interface{}) {
-	c.logger.Panic(v...)
-
-}
-func (c *console) Panicf(format string, v ...interface{}) {
-	c.logger.Panicf(format, v...)
-}
-func (c *console) Panicln(v ...interface{}) {
-	c.logger.Panicln(v...)
-}
-func (c *console) Prefix() string {
-	c.locker.Lock()
-	defer c.locker.Unlock()
-	return c.prefix
-}
-func (c *console) Print(v ...interface{}) {
-	c.logger.Print(v...)
-}
-func (c *console) Printf(format string, v ...interface{}) {
-	c.logger.Printf(format, v...)
-}
-func (c *console) Println(v ...interface{}) {
-	c.logger.Println(v...)
-}
 func (c *console) SetFlags(flag int) {
 	c.locker.Lock()
 	defer c.locker.Unlock()

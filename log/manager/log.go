@@ -28,7 +28,7 @@ func init() {
 		},
 	}
 
-	drv := provider.New(provider.CONSOLE, &arg).(Logger)
+	drv := provider.New(provider.CONSOLE, logPrefixs[LEVEL_DEFAULT], &arg).(Logger)
 
 	register(provider.CONSOLE, drv)
 
@@ -211,7 +211,7 @@ func Open(typ string, level int, arg *provider.Arg) error {
 	}
 
 	var drv Logger
-	logger := provider.New(typ, arg)
+	logger := provider.New(typ, logPrefixs[level], arg)
 	if logger == nil {
 		return fmt.Errorf("create the new driver with name: %s is failed\n", arg.Driver)
 	}

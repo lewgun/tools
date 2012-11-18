@@ -1,5 +1,9 @@
 package manager
 
+import (
+//	"log"
+)
+
 //日志接口
 type Logger interface {
 	Tracef(format string, params ...interface{})
@@ -10,9 +14,8 @@ type Logger interface {
 	Criticalf(format string, params ...interface{})
 
 	Release()
-}
 
-type StdLogger interface {
+	//standard log method set
 	Fatal(v ...interface{})
 	Fatalf(format string, v ...interface{})
 	Fatalln(v ...interface{})

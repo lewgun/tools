@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -28,14 +29,14 @@ func init() {
 }
 
 // create a logger wich was drvied by plain text
-func newFile(arg *Arg) interface{} {
+func newFile(arg *Arg, prefix string) interface{} {
 	if arg == nil {
 		return nil
 	}
 
 	f := &file{}
 
-	if err := f.init(arg); err != nil {
+	if err := f.init(arg, prefix); err != nil {
 		return nil
 	}
 	return f
@@ -69,7 +70,7 @@ type file struct {
 	locker sync.Mutex
 }
 
-func (f *file) init(arg *Arg) error {
+func (f *file) init(arg *Arg, prefix string) error {
 
 	extras := arg.Extras
 
@@ -78,6 +79,7 @@ func (f *file) init(arg *Arg) error {
 	}
 
 	f.uname = arg.Driver
+	f.prefix = prefix
 
 	for k, v := range extras {
 		switch k {
@@ -220,25 +222,7 @@ func (f *file) logRolling(data string) {
 	//placeholder
 }
 
-func (f *file) logHelper(format string, params ...interface{}) {
-
-	var (
-		body string
-		all  []byte
-	)
-
-	if format != "" {
-		body = fmt.Sprintf(format, params[2:]...)
-
-	} else {
-		body = fmt.Sprint(params[2:]...)
-	}
-
-	all = formatHelper(params[0].(string), params[1].(int), f.flag, f.prefix, body)
-
-	if all[len(all)-1] != '\n' {
-		all = append(all, '\n')
-	}
+func (f *file) logHelper(all []byte) {
 
 	switch f.typ {
 	case SINGLE_APPEND:
@@ -255,24 +239,44 @@ func (f *file) logHelper(format string, params ...interface{}) {
 
 }
 
+func (f *file) genStdLogHelper(format string, params ...interface{}) []interface{} {
+
+	_, file, line, _ := runtime.Caller(2)
+	if format != "" {
+		format = f.prefix + " " + format
+
+		params = append([]interface{}{file, line}, params...)
+	} else {
+		params = append([]interface{}{file, line, f.prefix}, params...)
+	}
+	return params
+
+}
 func (f *file) Tracef(format string, params ...interface{}) {
-	f.logHelper(format, params...)
+
+	all := outputHelper(format, false, f.flag, f.prefix, params...)
+	f.logHelper(all)
 }
 
 func (f *file) Debugf(format string, params ...interface{}) {
-	f.logHelper(format, params...)
+	all := outputHelper(format, false, f.flag, f.prefix, params...)
+	f.logHelper(all)
 }
 func (f *file) Infof(format string, params ...interface{}) {
-	f.logHelper(format, params...)
+	all := outputHelper(format, false, f.flag, f.prefix, params...)
+	f.logHelper(all)
 }
 func (f *file) Warnf(format string, params ...interface{}) {
-	f.logHelper(format, params...)
+	all := outputHelper(format, false, f.flag, f.prefix, params...)
+	f.logHelper(all)
 }
 func (f *file) Errorf(format string, params ...interface{}) {
-	f.logHelper(format, params...)
+	all := outputHelper(format, false, f.flag, f.prefix, params...)
+	f.logHelper(all)
 }
 func (f *file) Criticalf(format string, params ...interface{}) {
-	f.logHelper(format, params...)
+	all := outputHelper(format, false, f.flag, f.prefix, params...)
+	f.logHelper(all)
 }
 
 func (f *file) Release() {
@@ -282,50 +286,79 @@ func (f *file) Release() {
 	}
 }
 
+//standard log methods
 func (f *file) Fatal(v ...interface{}) {
-	f.logger.Fatal(v...)
+	params := f.genStdLogHelper("", v...)
+
+	all := outputHelper("", false, f.flag, PREFIX_STD_FATAL, params...)
+	f.logHelper(all)
+	os.Exit(1)
 
 }
 func (f *file) Fatalf(format string, v ...interface{}) {
-	f.logger.Fatalf(format, v...)
+	params := f.genStdLogHelper(format, v...)
+	all := outputHelper(format, false, f.flag, PREFIX_STD_FATAL, params...)
+	f.logHelper(all)
+	os.Exit(1)
 }
 func (f *file) Fatalln(v ...interface{}) {
-	f.logger.Fatalln(v...)
+	params := f.genStdLogHelper("", v...)
+	all := outputHelper("", true, f.flag, PREFIX_STD_FATAL, params...)
+	f.logHelper(all)
+	os.Exit(1)
 }
+
+func (f *file) Output(calldepth int, s string) error {
+	return f.logger.Output(calldepth+1, s)
+
+}
+func (f *file) Panic(v ...interface{}) {
+	params := f.genStdLogHelper("", v...)
+	all := outputHelper("", false, f.flag, PREFIX_STD_PANIC, params...)
+	panic(string(all))
+
+}
+func (f *file) Panicf(format string, v ...interface{}) {
+	params := f.genStdLogHelper(format, v...)
+	all := outputHelper(format, true, f.flag, PREFIX_STD_PANIC, params...)
+	panic(string(all))
+}
+func (f *file) Panicln(v ...interface{}) {
+	params := f.genStdLogHelper("", v...)
+	all := outputHelper("", true, f.flag, PREFIX_STD_PANIC, params...)
+	panic(string(all))
+}
+
+func (f *file) Print(v ...interface{}) {
+	params := f.genStdLogHelper("", v...)
+	all := outputHelper("", false, f.flag, PREFIX_STD_PRINT, params...)
+	f.logHelper(all)
+
+}
+func (f *file) Printf(format string, v ...interface{}) {
+	params := f.genStdLogHelper(format, v...)
+	all := outputHelper(format, false, f.flag, PREFIX_STD_PRINT, params...)
+	f.logHelper(all)
+}
+func (f *file) Println(v ...interface{}) {
+	params := f.genStdLogHelper("", v...)
+	all := outputHelper("", true, f.flag, PREFIX_STD_PRINT, params...)
+	f.logHelper(all)
+}
+
+func (f *file) Prefix() string {
+	f.locker.Lock()
+	defer f.locker.Unlock()
+	return f.prefix
+}
+
 func (f *file) Flags() int {
 	f.locker.Lock()
 	defer f.locker.Unlock()
 	return f.flag
 
 }
-func (f *file) Output(calldepth int, s string) error {
-	return f.logger.Output(calldepth+1, s)
 
-}
-func (f *file) Panic(v ...interface{}) {
-	f.logger.Panic(v...)
-
-}
-func (f *file) Panicf(format string, v ...interface{}) {
-	f.logger.Panicf(format, v...)
-}
-func (f *file) Panicln(v ...interface{}) {
-	f.logger.Panicln(v...)
-}
-func (f *file) Prefix() string {
-	f.locker.Lock()
-	defer f.locker.Unlock()
-	return f.prefix
-}
-func (f *file) Print(v ...interface{}) {
-	f.logger.Print(v...)
-}
-func (f *file) Printf(format string, v ...interface{}) {
-	f.logger.Printf(format, v...)
-}
-func (f *file) Println(v ...interface{}) {
-	f.logger.Println(v...)
-}
 func (f *file) SetFlags(flag int) {
 	f.locker.Lock()
 	defer f.locker.Unlock()
